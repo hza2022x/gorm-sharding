@@ -8,6 +8,11 @@ import (
 	"gorm.io/sharding"
 )
 
+const (
+	DSN_LOCAL = "root:root@tcp(localhost:13306)/test"
+	//dsn := "mysql://localhost:13306/test?sslmode=disable"
+)
+
 type Order struct {
 	ID        int64 `gorm:"primarykey"`
 	UserID    int64
@@ -15,29 +20,15 @@ type Order struct {
 }
 
 func main() {
-	//dsn := "mysql://localhost:13306/test?sslmode=disable"
-	dsn := "root:root@tcp(localhost:13306)/test"
-	db, err := gorm.Open(mysql.New(mysql.Config{DSN: dsn}))
+
+	db, err := gorm.Open(mysql.New(mysql.Config{DSN: DSN_LOCAL}))
 	if err != nil {
 		panic(err)
 	}
 
-	for i := 0; i < 64; i += 1 {
-		table := fmt.Sprintf("orders_%02d", i)
-		db.Exec(`DROP TABLE IF EXISTS ` + table)
-		db.Exec(`CREATE TABLE ` + table + ` (
-			id int PRIMARY KEY,
-			user_id int,
-			product_id int
-		)`)
-	}
+	//createTable(db)
 
-	middleware := sharding.Register(sharding.Config{
-		ShardingKey:         "user_id",
-		TableShards:         64,
-		PrimaryKeyGenerator: sharding.PKSnowflake,
-	}, "orders")
-	db.Use(middleware)
+	registerAlgorithm(db)
 
 	// this record will insert to orders_02
 	err = db.Create(&Order{UserID: 2}).Error
@@ -76,4 +67,25 @@ func main() {
 	fmt.Println(err) // nil
 	err = db.Exec("DELETE FROM orders WHERE product_id = 3").Error
 	fmt.Println(err) // ErrMissingShardingKey
+}
+
+func registerAlgorithm(db *gorm.DB) {
+	middleware := sharding.Register(sharding.Config{
+		ShardingKey:         "user_id",
+		TableShards:         64,
+		PrimaryKeyGenerator: sharding.PKSnowflake,
+	}, "orders")
+	db.Use(middleware)
+}
+
+func createTable(db *gorm.DB) {
+	for i := 0; i < 64; i += 1 {
+		table := fmt.Sprintf("orders_%02d", i)
+		db.Exec(`DROP TABLE IF EXISTS ` + table)
+		db.Exec(`CREATE TABLE ` + table + ` (
+			id int PRIMARY KEY,
+			user_id int,
+			product_id int
+		)`)
+	}
 }

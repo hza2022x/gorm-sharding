@@ -203,7 +203,7 @@ func (s *Sharding) registerCallbacks(db *gorm.DB) {
 func (s *Sharding) switchConn(db *gorm.DB) {
 	// Support ignore sharding in some case, like:
 	// When DoubleWrite is enabled, we need to query database schema information by table name during the migration.
-	if _, ok := db.Get(ShardingIgnoreStoreKey); !ok {
+	if _, ignore := db.Get(ShardingIgnoreStoreKey); !ignore {
 		s.ConnPool = &ConnPool{ConnPool: db.Statement.ConnPool, sharding: s}
 		db.Statement.ConnPool = s.ConnPool
 	}
