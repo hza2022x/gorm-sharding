@@ -108,7 +108,7 @@ func init() {
 	shardingConfig = Config{
 		DoubleWrite:         true,
 		ShardingKey:         "user_id",
-		NumberOfShards:      4,
+		TableShards:         4,
 		PrimaryKeyGenerator: PKSnowflake,
 	}
 

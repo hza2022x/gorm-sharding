@@ -3,6 +3,7 @@ package sharding
 import (
 	"errors"
 	"fmt"
+	"gorm.io/sharding/log"
 	"hash/crc32"
 	"strconv"
 	"strings"
@@ -35,72 +36,8 @@ type Sharding struct {
 	_tables []interface{}
 }
 
-//  Config specifies the configuration for sharding.
-type Config struct {
-	// When DoubleWrite enabled, data will double write to both main table and sharding table.
-	DoubleWrite bool
-
-	// ShardingKey specifies the table column you want to used for sharding the table rows.
-	// For example, for a product order table, you may want to split the rows by `user_id`.
-	ShardingKey string
-
-	// NumberOfShards specifies how many tables you want to sharding.
-	NumberOfShards uint
-
-	// tableFormat specifies the sharding table suffix format.
-	tableFormat string
-
-	// ShardingAlgorithm specifies a function to generate the sharding
-	// table's suffix by the column value.
-	// For example, this function implements a mod sharding algorithm.
-	//
-	// 	func(value interface{}) (suffix string, err error) {
-	//		if uid, ok := value.(int64);ok {
-	//			return fmt.Sprintf("_%02d", user_id % 64), nil
-	//		}
-	//		return "", errors.New("invalid user_id")
-	// 	}
-	ShardingAlgorithm func(columnValue interface{}) (suffix string, err error)
-
-	// ShardingSuffixs specifies a function to generate all table's suffix.
-	// Used to support Migrator and generate PrimaryKey.
-	// For example, this function get a mod all sharding suffixs.
-	//
-	// func () (suffixs []string) {
-	// 	numberOfShards := 5
-	// 	for i := 0; i < numberOfShards; i++ {
-	// 		suffixs = append(suffixs, fmt.Sprintf("_%02d", i%numberOfShards))
-	// 	}
-	// 	return
-	// }
-	ShardingSuffixs func() (suffixs []string)
-
-	// ShardingAlgorithmByPrimaryKey specifies a function to generate the sharding
-	// table's suffix by the primary key. Used when no sharding key specified.
-	// For example, this function use the Snowflake library to generate the suffix.
-	//
-	// 	func(id int64) (suffix string) {
-	//		return fmt.Sprintf("_%02d", snowflake.ParseInt64(id).Node())
-	//	}
-	ShardingAlgorithmByPrimaryKey func(id int64) (suffix string)
-
-	// PrimaryKeyGenerator specifies the primary key generate algorithm.
-	// Used only when insert and the record does not contains an id field.
-	// Options are PKSnowflake, PKPGSequence and PKCustom.
-	// When use PKCustom, you should also specify PrimaryKeyGeneratorFn.
-	PrimaryKeyGenerator int
-
-	// PrimaryKeyGeneratorFn specifies a function to generate the primary key.
-	// When use auto-increment like generator, the tableIdx argument could ignored.
-	// For example, this function use the Snowflake library to generate the primary key.
-	//
-	// 	func(tableIdx int64) int64 {
-	//		return nodes[tableIdx].Generate().Int64()
-	//	}
-	PrimaryKeyGeneratorFn func(tableIdx int64) int64
-}
-
 func Register(config Config, tables ...interface{}) *Sharding {
+	log.Debug("Register")
 	return &Sharding{
 		_config: config,
 		_tables: tables,
@@ -108,6 +45,7 @@ func Register(config Config, tables ...interface{}) *Sharding {
 }
 
 func (s *Sharding) compile() error {
+	log.Debug("compile")
 	if s.configs == nil {
 		s.configs = make(map[string]Config)
 	}
@@ -125,8 +63,8 @@ func (s *Sharding) compile() error {
 	}
 
 	for t, c := range s.configs {
-		if c.NumberOfShards > 1024 && c.PrimaryKeyGenerator == PKSnowflake {
-			panic("Snowflake NumberOfShards should less than 1024")
+		if c.TableShards > 1024 && c.PrimaryKeyGenerator == PKSnowflake {
+			panic("Snowflake TableShards should less than 1024")
 		}
 
 		if c.PrimaryKeyGenerator == PKSnowflake {
@@ -151,17 +89,17 @@ func (s *Sharding) compile() error {
 		}
 
 		if c.ShardingAlgorithm == nil {
-			if c.NumberOfShards == 0 {
-				return errors.New("specify NumberOfShards or ShardingAlgorithm")
+			if c.TableShards == 0 {
+				return errors.New("specify TableShards or ShardingAlgorithm")
 			}
-			if c.NumberOfShards < 10 {
-				c.tableFormat = "_%01d"
-			} else if c.NumberOfShards < 100 {
-				c.tableFormat = "_%02d"
-			} else if c.NumberOfShards < 1000 {
-				c.tableFormat = "_%03d"
-			} else if c.NumberOfShards < 10000 {
-				c.tableFormat = "_%04d"
+			if c.TableShards < 10 {
+				c.TableFormat = "_%01d"
+			} else if c.TableShards < 100 {
+				c.TableFormat = "_%02d"
+			} else if c.TableShards < 1000 {
+				c.TableFormat = "_%03d"
+			} else if c.TableShards < 10000 {
+				c.TableFormat = "_%04d"
 			}
 			c.ShardingAlgorithm = func(value interface{}) (suffix string, err error) {
 				id := 0
@@ -180,13 +118,13 @@ func (s *Sharding) compile() error {
 						"if you use other type, specify you own ShardingAlgorithm")
 				}
 
-				return fmt.Sprintf(c.tableFormat, id%int(c.NumberOfShards)), nil
+				return fmt.Sprintf(c.TableFormat, id%int(c.TableShards)), nil
 			}
 		}
 
 		if c.ShardingSuffixs == nil {
 			c.ShardingSuffixs = func() (suffixs []string) {
-				for i := 0; i < int(c.NumberOfShards); i++ {
+				for i := 0; i < int(c.TableShards); i++ {
 					suffix, err := c.ShardingAlgorithm(i)
 					if err != nil {
 						return nil
@@ -200,7 +138,7 @@ func (s *Sharding) compile() error {
 		if c.ShardingAlgorithmByPrimaryKey == nil {
 			if c.PrimaryKeyGenerator == PKSnowflake {
 				c.ShardingAlgorithmByPrimaryKey = func(id int64) (suffix string) {
-					return fmt.Sprintf(c.tableFormat, snowflake.ParseInt64(id).Node())
+					return fmt.Sprintf(c.TableFormat, snowflake.ParseInt64(id).Node())
 				}
 			}
 		}
@@ -212,11 +150,13 @@ func (s *Sharding) compile() error {
 
 // Name plugin name for Gorm plugin interface
 func (s *Sharding) Name() string {
+	log.Debug("Name()")
 	return "gorm:sharding"
 }
 
 // LastQuery get last SQL query
 func (s *Sharding) LastQuery() string {
+	log.Debug("LastQuery()")
 	if query, ok := s.querys.Load("last_query"); ok {
 		return query.(string)
 	}
@@ -262,8 +202,7 @@ func (s *Sharding) registerCallbacks(db *gorm.DB) {
 
 func (s *Sharding) switchConn(db *gorm.DB) {
 	// Support ignore sharding in some case, like:
-	// When DoubleWrite is enabled, we need to query database schema
-	// information by table name during the migration.
+	// When DoubleWrite is enabled, we need to query database schema information by table name during the migration.
 	if _, ok := db.Get(ShardingIgnoreStoreKey); !ok {
 		s.ConnPool = &ConnPool{ConnPool: db.Statement.ConnPool, sharding: s}
 		db.Statement.ConnPool = s.ConnPool

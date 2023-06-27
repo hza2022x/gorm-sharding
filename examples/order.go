@@ -34,7 +34,7 @@ func main() {
 
 	middleware := sharding.Register(sharding.Config{
 		ShardingKey:         "user_id",
-		NumberOfShards:      64,
+		TableShards:         64,
 		PrimaryKeyGenerator: sharding.PKSnowflake,
 	}, "orders")
 	db.Use(middleware)
