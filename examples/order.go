@@ -2,8 +2,8 @@ package main
 
 import (
 	"fmt"
+	"gorm.io/driver/mysql"
 
-	"gorm.io/driver/postgres"
 	"gorm.io/gorm"
 	"gorm.io/sharding"
 )
@@ -15,8 +15,9 @@ type Order struct {
 }
 
 func main() {
-	dsn := "postgres://localhost:5432/sharding-db?sslmode=disable"
-	db, err := gorm.Open(postgres.New(postgres.Config{DSN: dsn}))
+	//dsn := "mysql://localhost:13306/test?sslmode=disable"
+	dsn := "root:root@tcp(localhost:13306)/test"
+	db, err := gorm.Open(mysql.New(mysql.Config{DSN: dsn}))
 	if err != nil {
 		panic(err)
 	}
@@ -25,9 +26,9 @@ func main() {
 		table := fmt.Sprintf("orders_%02d", i)
 		db.Exec(`DROP TABLE IF EXISTS ` + table)
 		db.Exec(`CREATE TABLE ` + table + ` (
-			id BIGSERIAL PRIMARY KEY,
-			user_id bigint,
-			product_id bigint
+			id int PRIMARY KEY,
+			user_id int,
+			product_id int
 		)`)
 	}
 
